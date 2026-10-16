@@ -15,9 +15,38 @@ jobs:
       - name: Checkout GitHub repository
         uses: actions/checkout@v4
 
-      - name: Sync to Hugging Face
-        uses: huggingface/hub-sync@v0.1.0
-        with:
-          github_repo_id: ${{ github.repository }}
-          huggingface_repo_id: spiderman22/MakeItEasy
-          hf_token: ${{ secrets.HF_TOKEN }}
+      - name: Install rsync
+        run: sudo apt-get update && sudo apt-get install -y rsync
+
+      - name: Sync files to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          git clone https://huggingface.co/spaces/spiderman22/MakeItEasy hf-space
+
+          rsync -av --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='hf-space/' \
+            --exclude='.env' \
+            --exclude='data/' \
+            --exclude='.venv/' \
+            --exclude='venv/' \
+            --exclude='__pycache__/' \
+            ./ hf-space/
+
+          cd hf-space
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to deploy."
+          else
+            git commit -m "Deploy from GitHub ${GITHUB_SHA}"
+            git -c http.extraheader="AUTHORIZATION: Bearer ${HF_TOKEN}" push origin HEAD:main
+          fi
