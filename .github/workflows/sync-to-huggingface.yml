@@ -24,7 +24,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          git clone https://huggingface.co/spaces/spiderman22/MakeItEasy hf-space
+          git -c http.extraheader="AUTHORIZATION: Bearer ${HF_TOKEN}" \
+          clone https://huggingface.co/spaces/spiderman22/MakeItEasy hf-space
 
           rsync -av --delete \
             --exclude='.git/' \
@@ -48,5 +49,5 @@ jobs:
             echo "No changes to deploy."
           else
             git commit -m "Deploy from GitHub ${GITHUB_SHA}"
-            git -c http.extraheader="AUTHORIZATION: Bearer ${HF_TOKEN}" push origin HEAD:main
+            git -c http.extraheader="Authorization: Basic $(printf 'hf_user:%s' "$HF_TOKEN" | base64 -w0)" push origin HEAD:main
           fi
