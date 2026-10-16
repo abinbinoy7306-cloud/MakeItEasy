@@ -1,0 +1,15 @@
+torch
+spaces>=0.51.0
+gradio
+huggingface_hub
+pymupdf
+python-dotenv
+supabase
+chromadb
+accelerate
+transformers
+langchain
+langchain-core
+langchain-text-splitters
+langchain-huggingface
+sentence-transformers
