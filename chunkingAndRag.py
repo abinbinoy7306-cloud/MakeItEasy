@@ -1,10 +1,9 @@
-import os
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from sentence_transformers import CrossEncoder
 from chromadb import PersistentClient
+import os
 
 db_name = "data/chroma"
 collection_name = "docs"
@@ -12,14 +11,11 @@ collection_name = "docs"
 os.makedirs(db_name, exist_ok=True)
 
 embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
-    model_kwargs={"device": "cpu"},
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
 )
 
-# CPU reranker: ~90MB model, only ~10 pairs per query — avoids ZeroGPU worker_init failures on Spaces.
 reranker = CrossEncoder(
-    "cross-encoder/ms-marco-MiniLM-L-6-v2",
-    device="cpu",
+    "cross-encoder/ms-marco-MiniLM-L-6-v2"
 )
 
 chroma = PersistentClient(path=db_name)
