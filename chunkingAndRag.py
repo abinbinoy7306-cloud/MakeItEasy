@@ -1,7 +1,7 @@
+from sentence_transformers import CrossEncoder
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
-from sentence_transformers import CrossEncoder
 from chromadb import PersistentClient
 import os
 
@@ -11,12 +11,20 @@ collection_name = "docs"
 os.makedirs(db_name, exist_ok=True)
 
 embedding_model = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"},
+    encode_kwargs={"batch_size": 32},
 )
 
-reranker = CrossEncoder(
-    "cross-encoder/ms-marco-MiniLM-L-6-v2"
-)
+reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+
+def get_embedding_model():
+    return embedding_model
+
+
+def get_reranker():
+    return reranker
 
 chroma = PersistentClient(path=db_name)
 
@@ -82,27 +90,29 @@ def vector_store(chunks,session_id):
         }
     )
 
-    texts = [doc.page_content for doc in chunks]
+    # Chroma rejects add requests larger than its max batch size. Keep both
+    # embedding and database writes bounded so large PDFs are indexed safely.
+    batch_size = 1000
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        texts = [doc.page_content for doc in batch]
+        embeddings = get_embedding_model().embed_documents(texts)
+        metadatas = [doc.metadata for doc in batch]
+        ids = [
+            (
+                f"{session_id}_{filename}"
+                f"_page{doc.metadata['page']}"
+                f"_chunk{doc.metadata['chunk']}"
+            )
+            for doc in batch
+        ]
 
-    embeddings = embedding_model.embed_documents(texts)
-
-    metadatas = [doc.metadata for doc in chunks]
-
-    ids = [
-        (
-            f"{session_id}_{filename}"
-            f"_page{doc.metadata['page']}"
-            f"_chunk{doc.metadata['chunk']}"
+        collection.add(
+            ids=ids,
+            documents=texts,
+            embeddings=embeddings,
+            metadatas=metadatas
         )
-        for doc in chunks
-    ]
-
-    collection.add(
-        ids=ids,
-        documents=texts,
-        embeddings=embeddings,
-        metadatas=metadatas
-    )
 
     added_count = len(chunks)
 
@@ -111,7 +121,7 @@ def vector_store(chunks,session_id):
     return added_count
 
 
-def search_chunks(question,session_id, n_results=5, candidates=10):
+def search_chunks(question, session_id, n_results=5, candidates=10, rerank=True):
 
     if not question or not question.strip():
         return []
@@ -122,7 +132,7 @@ def search_chunks(question,session_id, n_results=5, candidates=10):
         return []
 
     # 1. Retrieve candidate chunks from Chroma.
-    question_embedding = embedding_model.embed_query(question)
+    question_embedding = get_embedding_model().embed_query(question)
 
     results = collection.query(
         query_embeddings=[question_embedding],
@@ -138,9 +148,12 @@ def search_chunks(question,session_id, n_results=5, candidates=10):
     if not documents:
         return []
 
-    # 2. Rerank candidates against the actual question.
-    pairs = [(question, text) for text in documents]
-    scores = reranker.predict(pairs)
+    # Rerank the Chroma candidates with the cross-encoder before answering.
+    if rerank:
+        pairs = [(question, text) for text in documents]
+        scores = get_reranker().predict(pairs)
+    else:
+        scores = [0.0] * len(documents)
 
     matches = []
 
@@ -156,11 +169,8 @@ def search_chunks(question,session_id, n_results=5, candidates=10):
             "rerank_score": float(scores[i])
         })
 
-    # Higher cross-encoder scores mean greater relevance.
-    matches.sort(
-        key=lambda item: item["rerank_score"],
-        reverse=True
-    )
+    if rerank:
+        matches.sort(key=lambda item: item["rerank_score"], reverse=True)
 
     return matches[:n_results]
 
