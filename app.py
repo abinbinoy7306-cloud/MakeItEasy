@@ -224,8 +224,8 @@ def answer_question(question, session_id, history=None):
     matches = search_chunks(
             question,
             session_id=session_id,
-            n_results=3,
-            candidates=3,
+            n_results=5,
+            candidates=5,
             rerank=True
         )
 
